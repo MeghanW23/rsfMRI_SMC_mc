@@ -104,7 +104,17 @@ for i =  1: overall_maxIter
     %% Cost computation
     thiscost = compute_cost_withbeta(Zr,Iorig,Xsamp,s,epsilon,p,mu,beta,interpolator,params,params_ind,origin,spacing,direction,origin_4d,spacing_4d,direction_4d,n1,n2,nsl,nv,slice_info,nslbysmsfac);
     cost = [cost,thiscost];
-    figure(5),plot(cost);drawnow;
+    fig = figure('Visible','off');
+    plot(1:length(cost), cost, '-o');
+    xlabel('Iteration');
+    ylabel('Cost');
+    title('Reconstruction Cost');
+
+    filename = fullfile(opt.output_dir, sprintf('reconstruction_cost-%d.png', i));
+    exportgraphics(fig, filename, 'Resolution', 300);
+    close(fig);
+    disp("Cost Plot Saved to:")
+    disp(filename)
 %     nm  = Zr - Xsamp;
 %     sum(nm(:).^2)
     clear Xsamp

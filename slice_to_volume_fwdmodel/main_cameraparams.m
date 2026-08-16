@@ -1,32 +1,44 @@
-%%% Arvind Balachandrasekaran
-% Code to simultaneous motion compensated reconstruction and slice time
-% correction in rsfMRI
-clear;close all;clc
+function main_cameraparams(raw_fmri_image_path, raw_fmri_image_path_bgremoved, output_dir, ...
+                           motion_params_file, displacement_file, slice_num_ordering_file, ...
+                           recon_noscrub_filename_prefix, recon_scrub_filename_prefix, ...
+                           thresh_forscrub, sms_fac)
+%% Example Usage Via Command Line:
+% matlab -batch \
+% "main_cameraparams( \
+% '/lab-share/Neuro-Cohen-e2/Groups/IRB-P00049401/intravolume_motion_pipeline/participant_data/func-bold_task-NFB2_20250827181314_24.nii.gz', \
+% '/lab-share/Neuro-Cohen-e2/Groups/IRB-P00049401/intravolume_motion_pipeline/participant_data/func-bold_task-NFB2_20250827181314_24_bgremoved.nii.gz', \
+% '/lab-share/Neuro-Cohen-e2/Groups/IRB-P00049401/intravolume_motion_pipeline/test', \
+% '/lab-share/Neuro-Cohen-e2/Groups/IRB-P00049401/intravolume_motion_pipeline/participant_data/radian-parameters.txt', \
+% '/lab-share/Neuro-Cohen-e2/Groups/IRB-P00049401/intravolume_motion_pipeline/participant_data/displacements.txt', \
+% '/lab-share/Neuro-Cohen-e2/Groups/IRB-P00049401/intravolume_motion_pipeline/participant_data/slice_num_ordering_sms-fac-4.txt', \
+% 'no-scrubbing_motion-corrected_func_image', \
+% 'scrubbed_and_motion-corrected_func_image', \
+% 0.4157, \
+% 4 \
+% )"
+%%
+
+close all;
+clc;
 set(0,'DefaultFigureWindowStyle','docked');
 %%  Add all paths
 addpath('../direct-liftandunlift-codes');
 addpath('../operators/');
 addpath('../');
 %% create folders to save background volumes and motion params
-PWD = pwd;
-data_path = '/fileserver/fetal/Arvind/fMRI/slice_to_volume_fwdmodel/cameradata/proposed/';
-cd(data_path);
-if ~exist('bgremoved','dir')
-    mkdir bgremoved
+
+opt.output_dir = output_dir;
+[~, ~, ~] = mkdir(output_dir);
+
+if ischar(thresh_forscrub) || isstring(thresh_forscrub)
+    thresh_forscrub = str2double(thresh_forscrub);
 end
 
-if ~exist('motionparams','dir')
-    mkdir motionparams
+if ischar(sms_fac) || isstring(sms_fac)
+    sms_fac = str2double(sms_fac);
 end
-cd(PWD)
-thresh_noscrub = 0; % variable indicating no scrubbing
-thresh_forscrub = 0.5; % variable indicating volumes with framewise displacement > 0.5 will be marked for scrubbing
-%fmri_fname_mask  = 
-fmri_fname = '/home/ch208071/Research/Codes/fMRI/rsfMRIwithandwithoutmotion/Matlabcodes/data/datafromYao/abruptmotion.nii.gz';
-[~,f,~] = fileparts(fmri_fname);
-[~,g,~] = fileparts(f);
 
-Y = py.SimpleITK.ReadImage(fmri_fname,py.SimpleITK.sitkFloat64);
+Y = py.SimpleITK.ReadImage(raw_fmri_image_path,py.SimpleITK.sitkFloat64);
 origin_4d = Y.GetOrigin();
 spacing_4d = Y.GetSpacing();
 direction_4d=  Y.GetDirection();
@@ -47,13 +59,20 @@ opt.I1 = Iorig(:,:,:,opt.vol_start);
 %Inp = py.numpy.asarray(permute(Iorig_tr,[4,3,1,2]));
 %Y =  py.vvr_regtofirstvolofmo.numpy4Dtositk(Inp,origin_4d,direction_4d,spacing_4d,int32(nv));
 opt.nv = nv;
-sms_fac=2; %% if multiple slices are acquired at the same time, sms > 1
 nslbysmsfac = nsl/sms_fac;
 opt.nslbysmsfac = nslbysmsfac;
 opt.sms_fac = sms_fac;
-opt.slice_acq_order = [1,19,3,21,5,23,7,25,17,35,9,27,11,29,13,31,15,33,2,20,4,22,6,24,8,26,0,18,10,28,12,30,14,32,16,34]+1;
+
+opt.slice_acq_order = load(slice_num_ordering_file)';
+opt.slice_acq_order = opt.slice_acq_order + 1;
+assert(numel(opt.slice_acq_order) == nsl, ...
+    'Slice acquisition order must contain exactly %d entries.', nsl);
+
+assert(isequal(sort(opt.slice_acq_order), 1:nsl), ...
+    'Slice acquisition order must contain every slice exactly once.');
+
 opt.params_ind = py.numpy.int32(py.range(int32(nslbysmsfac)));
-const = 2*ones(1,nslbysmsfac);
+const = sms_fac*ones(1,nslbysmsfac);
 sl_acq_order_cell_py = mat2cell(opt.slice_acq_order-1,[1],const); % python convention.
 %ilacq_cell_mat = mat2cell(opt.slice_acq_order,[1],const);  % matlab convention.
 slice_info = py.dict(pyargs());
@@ -61,39 +80,47 @@ for i = 1:nslbysmsfac
     slice_info{i-1} =  matlabtonumpy(int32(sl_acq_order_cell_py{i}));% according to python convention.
 end
 opt.slice_info = slice_info;
-%%
-% Estimate motion parameters
-%OutputNiftiFile = strcat(data_path,'motionparams/',g,'_vvr.nii.gz');
-%OutputMotionParams = strcat(data_path,'cameraparams_abruptnodding.txt');
-OutputMotionParams = strcat(data_path,'motionparams/',g,'_slc','.txt');
 
-%%%% Here SLice to registration algorithm that estimates slice level motion
-%%%% estimates should be used.
-% if ~exist(OutputMotionParams)
-%     EstimateMotionParamsFromMotionData(fmri_fname,opt.vol_start,OutputNiftiFile,OutputMotionParams);
-% end
-%% Compute framewse displacement
-params_temp = load(OutputMotionParams);
-[r,c] = size(params_temp);
+%% Compute framewise displacement
+params_temp = load(motion_params_file);
+[r,~] = size(params_temp);
 params_temp = params_temp(opt.vol_start:r,:);
-%params = matlabtonumpy(params);
-opt.params = py.numpy.asarray(params_temp);   %%% numpy stored in opt
 
-params_temp(:,1:3) = params_temp(:,1:3)*50;%% displacement = r times theta, where r = 35 mm for DHCP
-params_diff = params_temp(1:end-1,:) - params_temp(2:end,:);
-SWD = sum(abs(params_diff),2); % frame wise displacement
-SWD = [0;SWD];
-figure(1),plot(SWD);drawnow;
-y = thresh_forscrub*ones(1,length(SWD));
-hold on,plot(y);drawnow;
+% Load parameters from radian_parameters.txt: to be used for slice-level motion correction in reconstruct_timeseries_noscrub_forsltovol
+opt.params = py.numpy.asarray(params_temp);
+
+% Load displacements from displacements.txt: to be used to determine which volumes to be scrubbed in MainFunctionForInterpScrubbedData
+SWD = load(displacement_file);
+
+%% Create SWD plot without displaying a GUI
+set(groot, 'defaultFigureWindowStyle', 'normal');
+set(groot, 'defaultFigureVisible', 'off');
+
+fig = figure('Visible', 'off', 'WindowStyle', 'normal');
+
+plot(SWD);
+hold on;
+
+y = thresh_forscrub * ones(length(SWD), 1);
+plot(y);
+
+xlabel('Aquisition');
+ylabel('Intravolume-Motion');
+title('Intravolume-Motion');
+
+exportgraphics(fig, fullfile(output_dir, 'SWD.png'), 'Resolution', 300);
+
+close(fig);
+
+disp("SWD Plot Saved to:")
+disp(fullfile(output_dir, 'SWD.png'))
 %%
 opt.n1 = n1;
 opt.n2 = n2;
 opt.nsl = nsl;
 %% fmri time series without background
-fmri_fname_bgremoved = strcat(data_path,'bgremoved/',g,'_bgremoved.nii.gz');
-%fmri_fname_bgremoved = strcat(data_path,'_bgremoved.nii.gz');
-Y_nobg_img = py.SimpleITK.ReadImage(fmri_fname_bgremoved,py.SimpleITK.sitkFloat64);
+%raw_fmri_image_path_bgremoved = strcat(data_path,'_bgremoved.nii.gz');
+Y_nobg_img = py.SimpleITK.ReadImage(raw_fmri_image_path_bgremoved,py.SimpleITK.sitkFloat64);
 I_nobg = permute(double(py.SimpleITK.GetArrayFromImage(Y_nobg_img)),[3,4,2,1]);
 %I_nobg = numpytomatlab(py.SimpleITK.GetArrayFromImage(Ynobg_img));
 I_nobg = I_nobg(:,:,:,opt.vol_start:nvs);
@@ -123,39 +150,77 @@ opt.p = 0.1;% Schatten p-norm value 0 <= p <=1
 
 %fname = strcat(data_path,'recon_',g,'.nii.gz');
 %fname = strcat(data_path,'recon_',g,'_beta0.2_fac1.2_iter20_segnooverlap.nii.gz');
-fname  = strcat('recon_abruptmotion.nii.gz');
-py.SimpleITK.WriteImage(X_img, fname);  
+fpath = fullfile(output_dir, [recon_noscrub_filename_prefix '.nii.gz']);
+py.SimpleITK.WriteImage(X_img, fpath);  
+disp("Reconstructed fMRI Image (Pre-Scrubbing) at: ")
+disp(fpath)
+
 %fname = strcat(data_path,'recon_noscrub_betai nit',num2str(opt.beta),'_',g,'.nii.gz');
     %py.SimpleITK.WriteImage(X_img, fname);
 %X_img = py.SimpleITK.ReadImage(fname,py.SimpleITK.sitkFloat64);
 %% The downsampled output is the input to the second stage, where volumes with FD > threshold are marked for scrubbing.
 %% The missing data is then interpolated using the matrix completion algorithm.
 %% Interpolate scrubbed data.
+
+
+%% Scrub volumes if ANY acquisition-to-acquisition movement exceeds threshold
+
+nGroups = nslbysmsfac;   %ex. 15
+nVolumes = nv;           %ex. 283
+
+assert(length(SWD) == nGroups*nVolumes - 1, ...
+    'Unexpected number of displacement values.');
+
+max_displacement_per_volume = zeros(nVolumes,1);
+
+for v = 1:nVolumes
+    start_idx = (v-1)*nGroups + 1;
+    end_idx = min(v*nGroups, length(SWD));
+
+    max_displacement_per_volume(v) = max(SWD(start_idx:end_idx));
+end
+
 opt.lower_thresh = -1;
-opt.higher_thresh = 2; %% Threshold to remove volumes.
+opt.higher_thresh = 2;
 opt.tolerance = 1e-6;
 opt.maxIter = 45;
 opt.thresh_forscrub = thresh_forscrub;
-opt.SWD = SWD;
+opt.SWD = max_displacement_per_volume;
 opt.beta = 1; %% Don't change.
 
-figure(i),plot(SWD);drawnow;
-y = thresh_forscrub*ones(1,length(SWD));
-hold on,plot(y);drawnow;
+fig = figure('Visible','off');
+plot(max_displacement_per_volume);
+hold on;
 
-[vol_i,~,~] = find(SWD>=thresh_forscrub);
+y = thresh_forscrub * ones(1,length(max_displacement_per_volume));
+plot(y);
+
+xlabel('Volume');
+ylabel('Maximum intra-volume displacement');
+title('Volume-wise Motion / Scrubbing Threshold');
+
+filename = fullfile(output_dir, 'max-swd-per-volume.png');
+exportgraphics(fig, filename, 'Resolution', 300);
+close(fig);
+
+disp("Scrubbing Plot Saved to:")
+disp(fullfile(filename))
+
+[vol_i,~,~] = find(max_displacement_per_volume>=thresh_forscrub);
 
 if ~isempty(vol_i)
-    opt.filt_siz = nv/2;   %% Have set the filter size to length of series/2. If the results are not good, run the algorithm for a different value.
+    opt.filt_siz = round(nv/2);   %% Have set the filter size to length of series/2. If the results are not good, run the algorithm for a different value.
     for count = 1:length(opt.filt_siz)
         opt.ft = opt.filt_siz(count);
         [Xs,vol_rem] = MainFunctionForInterpScrubbedData(X_img,opt);
         Is = reshape(Xs,n1,n2,nsl,nv);
         X_np = matlabtonumpy(Is);
         X_img = py.pyfuncs_sv_parallelized_ss_volumelevel.numpy4Dtositk(X_np,origin_4d,direction_4d,spacing_4d,int32(nv));
-        filename   = [data_path,'recon_scrub_betainit',num2str(opt.beta),'_','ft' num2str(opt.ft),'_',g,'.nii.gz'] ;
+        filename = fullfile(output_dir, [recon_scrub_filename_prefix '.nii.gz']);
         py.SimpleITK.WriteImage(X_img, filename);
+        disp("Reconstructed fMRI Image (Post-Scrubbing) at: ")
+        disp(strcat(filename))
     end
-    py.numpy.save(strcat(data_path,'vol_rem_thr0.5_afterscrubbing'),matlabtonumpy(vol_rem));
+    py.numpy.save(strcat(output_dir,'vol_rem_afterscrubbing'),matlabtonumpy(vol_rem));
 end
 disp(strcat(g, '    done'));
