@@ -21,17 +21,22 @@ function main_cameraparams(raw_fmri_image_path, raw_fmri_image_path_bgremoved, o
 close all;
 clc;
 set(0,'DefaultFigureWindowStyle','docked');
-%% Add paths relative to this script's location
+
+
 script_dir = fileparts(mfilename('fullpath'));
+repo_dir = fullfile(script_dir, '..');
 
 % MATLAB paths
 addpath(script_dir);
-addpath(fullfile(script_dir, '..'));
-addpath(fullfile(script_dir, '..', 'direct-liftandunlift-codes'));
-addpath(fullfile(script_dir, '..', 'operators'));
+addpath(repo_dir);
+addpath(fullfile(repo_dir, 'direct-liftandunlift-codes'));
+addpath(fullfile(repo_dir, 'operators'));
 
-% Python path
+% Python paths
 insert(py.sys.path, int32(0), script_dir);
+insert(py.sys.path, int32(0), repo_dir);
+
+
 %% create folders to save background volumes and motion params
 
 opt.output_dir = output_dir;
@@ -230,4 +235,4 @@ if ~isempty(vol_i)
     end
     py.numpy.save(strcat(output_dir,'vol_rem_afterscrubbing'),matlabtonumpy(vol_rem));
 end
-disp(strcat(g, '    done'));
+disp("Motion Correction Step is Done.");
