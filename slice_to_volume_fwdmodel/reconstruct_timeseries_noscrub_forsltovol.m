@@ -102,7 +102,7 @@ for i =  1: overall_maxIter
     %Zr  = permute(double(Zr_np),[3,4,2,1]);
   
     %% Cost computation
-    thiscost = compute_cost_withbeta(Zr,Iorig,Xsamp,s,epsilon,p,mu,beta,interpolator,params,params_ind,origin,spacing,direction,origin_4d,spacing_4d,direction_4d,n1,n2,nsl,nv,slice_info,nslbysmsfac);
+    thiscost = compute_cost_withbeta_forsltovol(Zr,Iorig,Xsamp,s,epsilon,p,mu,beta,interpolator,params,params_ind,origin,spacing,direction,origin_4d,spacing_4d,direction_4d,n1,n2,nsl,nv,slice_info,nslbysmsfac);
     cost = [cost,thiscost];
     fig = figure('Visible','off');
     plot(1:length(cost), cost, '-o');

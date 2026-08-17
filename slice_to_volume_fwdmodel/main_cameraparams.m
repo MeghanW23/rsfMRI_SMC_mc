@@ -21,10 +21,17 @@ function main_cameraparams(raw_fmri_image_path, raw_fmri_image_path_bgremoved, o
 close all;
 clc;
 set(0,'DefaultFigureWindowStyle','docked');
-%%  Add all paths
-addpath('../direct-liftandunlift-codes');
-addpath('../operators/');
-addpath('../');
+%% Add paths relative to this script's location
+script_dir = fileparts(mfilename('fullpath'));
+
+% MATLAB paths
+addpath(script_dir);
+addpath(fullfile(script_dir, '..'));
+addpath(fullfile(script_dir, '..', 'direct-liftandunlift-codes'));
+addpath(fullfile(script_dir, '..', 'operators'));
+
+% Python path
+insert(py.sys.path, int32(0), script_dir);
 %% create folders to save background volumes and motion params
 
 opt.output_dir = output_dir;
