@@ -209,7 +209,7 @@ plot(y);
 
 xlabel('Volume');
 ylabel('Maximum intra-volume displacement');
-title('Volume-wise Motion / Scrubbing Threshold');
+title('Max Slice Group Displacement per Volume');
 
 filename = fullfile(output_dir, 'max-swd-per-volume.png');
 exportgraphics(fig, filename, 'Resolution', 300);
