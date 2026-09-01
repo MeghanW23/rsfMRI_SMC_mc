@@ -66,10 +66,6 @@ if opt.vol_start ~=1
 end
 opt.I1 = Iorig(:,:,:,opt.vol_start);
 
-%Iorig_tr = Iorig(:,:,:,vol_start:nvs);
-%Inp =  matlabtonumpy(I);
-%Inp = py.numpy.asarray(permute(Iorig_tr,[4,3,1,2]));
-%Y =  py.vvr_regtofirstvolofmo.numpy4Dtositk(Inp,origin_4d,direction_4d,spacing_4d,int32(nv));
 opt.nv = nv;
 nslbysmsfac = nsl/sms_fac;
 opt.nslbysmsfac = nslbysmsfac;
